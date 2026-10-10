@@ -1,0 +1,805 @@
+Created At: 2026-09-02T20:48:48+05:30
+Completed At: 2026-09-02T20:48:48+05:30
+File Path: `file:///c:/webcode/msu-hacthon/frontend/src/components/Dashboard.jsx`
+Total Lines: 4056
+Total Bytes: 324424
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: import React, { useState, useEffect, useRef, useCallback } from 'react';
+2: import { Shield, Lock, Unlock } from 'lucide-react';
+3: import AuthModal from './AuthModal';
+4: import { extractFacePortrait } from '../utils/faceExtraction';
+5: import { loadVerificationModels, getFaceDescriptor, verifyIdentity, createHtmlImageFromDataUrl } from '../utils/faceVerification';
+6: 
+7: const useInView = (threshold = 0.1, triggerOnce = true) => {
+8:   const [inView, setInView] = useState(false);
+9:   const observerRef = useRef(null);
+10: 
+11:   const ref = useCallback((node) => {
+12:     if (observerRef.current) {
+13:       observerRef.current.disconnect();
+14:       observerRef.current = null;
+15:     }
+16:     
+17:     if (node) {
+18:       const observer = new IntersectionObserver(([entry]) => {
+19:         if (entry.isIntersecting) {
+20:           setInView(true);
+21:           if (triggerOnce) {
+22:             observer.disconnect();
+23:           }
+24:         } else if (!triggerOnce) {
+25:           setInView(false);
+26:         }
+27:       }, { threshold });
+28:       
+29:       observer.observe(node);
+30:       observerRef.current = observer;
+31:     } else {
+32:       setInView(false);
+33:     }
+34:   }, [threshold, triggerOnce]);
+35: 
+36:   return [ref, inView];
+37: };
+38: 
+39: const Dashboard = () => {
+40:   // Global State
+41:   const [activeTab, setActiveTab] = useState('scanner'); // 'scanner', 'profile', 'database'
+42:   const [dbUnlocked, setDbUnlocked] = useState(false);
+43:   const [showAuthModal, setShowAuthModal] = useState(false);
+44:   const [authStatus, setAuthStatus] = useState('LOCKED'); // LOCKED, VERIFYING, GRANTED, DENIED
+45:   const [pin, setPin] = useState('');
+46:   const [selectedPassenger, setSelectedPassenger] = useState(null); // For slide-over
+47:   const [isOverviewOpen, setIsOverviewOpen] = useState(false); // For Subject Overview Drawer
+48:   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false); // Compact command-center default
+49: 
+50:   // Scanner State
+51:   const [files, setFiles] = useState([]);
+52:   const [isAnalyzing, setIsAnalyzing] = useState(false);
+53:   const [analysisResult, setAnalysisResult] = useState(null);
+54:   const [finalSubjectPortrait, setfinalSubjectPortrait] = useState(undefined);
+55:   const [faceVerificationResult, setFaceVerificationResult] = useState(null);
+56:   const [liveWebcamFaceData, setLiveWebcamFaceData] = useState(null);
+57: 
+58:   useEffect(() => {
+59:     loadVerificationModels();
+60:   }, []);
+61:   
+62:   const IS_DEV_MODE = false; // Temporary debug flag for portrait extraction
+63:   const [cameraError, setCameraError] = useState(false);
+64:   const [logs, setLogs] = useState([]);
+65: 
+66:   // Operations State
+67:   const [showToast, setShowToast] = useState(false);
+68:   const [toastMessage, setToastMessage] = useState('');
+69:   const [showReportModal, setShowReportModal] = useState(false);
+70:   const [animateBars, setAnimateBars] = useState(false);
+71:   
+72:   // Final Decision State
+73:   const [caseStatus, setCaseStatus] = useState('AWAITING_DECISION');
+74:   const [finalDecision, setFinalDecision] = useState(null);
+75:   const [decisionTimestamp, setDecisionTimestamp] = useState(null);
+76:   const [pendingDecision, setPendingDecision] = useState(null);
+77:   const [aiRecommendation, setAiRecommendation] = useState(null);
+78:   const [showDecisionModal, setShowDecisionModal] = useState(false);
+79:   const [showEvidenceInvestigation, setShowEvidenceInvestigation] = useState(false);
+80:   const [selectedEvidenceFinding, setSelectedEvidenceFinding] = useState(null);
+81:   const [selectedNetworkNode, setSelectedNetworkNode] = useState(null);
+82:   
+83:   // Threat Network Animation Refs
+84:   const [networkHeaderRef, networkHeaderInView] = useInView(0.1, true);
+85:   const [networkGraphRef, networkGraphInView] = useInView(0.2, true);
+86:   const [networkSummaryRef, networkSummaryInView] = useInView(0.2, true);
+87:   const [networkTimelineRef, networkTimelineInView] = useInView(0.1, true);
+88: 
+89:   // Global Tab 2 Scroll Animation Refs
+90:   const [identityRef, identityInView] = useInView(0.1, true);
+91:   const [riskRef, riskInView] = useInView(0.1, true);
+92:   const [biometricRef, biometricInView] = useInView(0.1, true);
+93:   const [timelineRef, timelineInView] = useInView(0.1, true);
+94:   const [findingsRef, findingsInView] = useInView(0.1, true);
+95:   const [criminalRef, criminalInView] = useInView(0.1, true);
+96:   const [recommendationRef, recommendationInView] = useInView(0.1, true);
+97:   const [decisionRef, decisionInView] = useInView(0.1, true);
+98: 
+99:   const fileInputRef = useRef(null);
+100:   const videoRef = useRef(null);
+101: 
+102:   useEffect(() => {
+103:     if (activeTab === 'profile' && analysisResult) {
+104:       const timer = setTimeout(() => setAnimateBars(true), 200);
+105:       return () => { clearTimeout(timer); setAnimateBars(false); };
+106:     } else {
+107:       setAnimateBars(false);
+108:     }
+109:   }, [activeTab, analysisResult]);
+110: 
+111:   const renderOperationsActionBar = (className = "") => (
+112:     <div className={`flex flex-col sm:flex-row items-center justify-between bg-[#F3F5F7] border border-[#B7CAD8] rounded-sm p-4 shadow-none ${className}`}>
+113:       <div className="flex items-center space-x-3 mb-4 sm:mb-0">
+114:         <span className="flex h-3 w-3 relative">
+115:           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+116:           <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+117:         </span>
+118:         <h2 className="uppercase tracking-widest text-xs font-bold text-[#2F475B]">Active Operations</h2>
+119:       </div>
+120:       <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
+121:         <button 
+122:           onClick={() => {
+123:             setToastMessage('Alert Escalated to Border Patrol Units');
+124:             setShowToast(true);
+125:             setTimeout(() => setShowToast(false), 4000);
+126:           }}
+127:           className="bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-sm shadow-none hover:bg-red-800 transition flex items-center justify-center w-full sm:w-auto uppercase tracking-wider"
+128:         >
+129:           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+130:             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+131:           </svg>
+132:           Escalate to Interpol
+133:         </button>
+134:         <button 
+135:           disabled={!analysisResult}
+136:           onClick={() => {
+137:             if (IS_DEV_MODE && finalSubjectPortrait) {
+138:               console.log(`\nPDF PORTRAIT SOURCE:\n[exact selectedCandidateId: ${finalSubjectPortrait.method}]\n`);
+139:             }
+140:             setShowReportModal(true);
+141:           }}
+142:           className={`border font-bold text-xs px-4 py-2 rounded-sm shadow-none transition flex items-center justify-center w-full sm:w-auto uppercase tracking-wider
+143:             ${!analysisResult ? 'bg-[#DCE7EE] text-[#60798C] border-[#B7CAD8] cursor-not-allowed' : 
+144:               caseStatus === 'AWAITING_DECISION' ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 
+145:               'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'}`}
+146:         >
+147:           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+148:             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+149:           </svg>
+150:           {!analysisResult ? 'Report Disabled' : caseStatus === 'AWAITING_DECISION' ? 'Preliminary Report â€” Pending Decision' : 'Generate Final Border Report'}
+151:         </button>
+152:       </div>
+153:     </div>
+154:   );
+155: 
+156:   // Passenger Mock Data for Tab 3 -> Migrated to Dynamic State
+157:   const [databaseRecords, setDatabaseRecords] = useState([
+158:     { 
+159:       caseId: 'BSS-2026-1042', time: '08:14 AM', date: '01 SEP 2026', name: 'DANIEL MERCER', nationality: 'CANADIAN', 
+160:       documentType: 'CANADA PASSPORT', docCount: 1, riskScore: 12, riskLevel: 'LOW', threatLevel: 'NO ACTIVE ALERT',
+161:       aiRecommendation: 'CLEARANCE RECOMMENDED', finalDecision: 'CLEARED', status: 'CLEARED',
+162:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 98.4, biometricMatch: true, docNumber: 'P8923471X',
+163:       securityFindings: []
+164:     },
+165:     { 
+166:       caseId: 'BSS-2026-1087', time: '09:22 AM', date: '01 SEP 2026', name: 'SOFIA ALVAREZ', nationality: 'SPANISH', 
+167:       documentType: 'VISA', docCount: 2, riskScore: 45, riskLevel: 'MEDIUM', threatLevel: 'PREVIOUS VISA OVERSTAY',
+168:       aiRecommendation: 'MANUAL REVIEW', finalDecision: 'PENDING_REVIEW', status: 'PENDING OFFICER REVIEW',
+169:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 82.1, biometricMatch: true, docNumber: 'V7381944M',
+170:       securityFindings: ["INTERPOL WATCHLIST: SECONDARY NAME MATCH", "VISA ISSUANCE VERIFICATION PENDING"]
+171:     },
+172:     { 
+173:       caseId: 'BSS-2026-1124', time: '10:05 AM', date: '01 SEP 2026', name: 'MARCUS HALE', nationality: 'BRITISH', 
+174:       documentType: 'UK PASSPORT', docCount: 1, riskScore: 94, riskLevel: 'CRITICAL', threatLevel: 'BIOMETRIC MISMATCH',
+175:       aiRecommendation: 'IMMEDIATE REJECTION', finalDecision: 'REJECTED', status: 'REJECTED',
+176:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 21.5, biometricMatch: false, docNumber: 'J9284751K',
+177:       securityFindings: ["CRITICAL: FACIAL BIOMETRIC MISMATCH DETECTED", "MRZ CHECKSUM INVALID"]
+178:     },
+179:     { 
+180:       caseId: 'BSS-2026-1130', time: '10:45 AM', date: '01 SEP 2026', name: 'YUKI TANAKA', nationality: 'JAPANESE', 
+181:       documentType: 'JAPAN PASSPORT', docCount: 1, riskScore: 8, riskLevel: 'LOW', threatLevel: 'NO ACTIVE ALERT',
+182:       aiRecommendation: 'CLEARANCE RECOMMENDED', finalDecision: 'CLEARED', status: 'CLEARED',
+183:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 99.2, biometricMatch: true, docNumber: 'T4402918L',
+184:       securityFindings: []
+185:     },
+186:     { 
+187:       caseId: 'BSS-2026-1142', time: '11:15 AM', date: '01 SEP 2026', name: 'OMAR AL-FASSI', nationality: 'MOROCCAN', 
+188:       documentType: 'MOROCCO PASSPORT', docCount: 1, riskScore: 18, riskLevel: 'LOW', threatLevel: 'NO ACTIVE ALERT',
+189:       aiRecommendation: 'CLEARANCE RECOMMENDED', finalDecision: 'CLEARED', status: 'CLEARED',
+190:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 95.6, biometricMatch: true, docNumber: 'U2283990A',
+191:       securityFindings: []
+192:     },
+193:     { 
+194:       caseId: 'BSS-2026-1158', time: '12:30 PM', date: '01 SEP 2026', name: 'ELENA ROSTOVA', nationality: 'RUSSIAN', 
+195:       documentType: 'VISA', docCount: 2, riskScore: 88, riskLevel: 'HIGH', threatLevel: 'SUSPECTED FORGERY',
+196:       aiRecommendation: 'REJECTION RECOMMENDED', finalDecision: 'REJECTED', status: 'REJECTED',
+197:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 65.4, biometricMatch: true, docNumber: 'R5529184B',
+198:       securityFindings: ["HOLOGRAM AUTHENTICATION FAILED", "INCONSISTENT FONT KERNING IN MRZ"]
+199:     },
+200:     { 
+201:       caseId: 'BSS-2026-1165', time: '01:10 PM', date: '01 SEP 2026', name: 'DAVID CHEN', nationality: 'SINGAPOREAN', 
+202:       documentType: 'SINGAPORE PASSPORT', docCount: 1, riskScore: 15, riskLevel: 'LOW', threatLevel: 'NO ACTIVE ALERT',
+203:       aiRecommendation: 'CLEARANCE RECOMMENDED', finalDecision: 'CLEARED', status: 'CLEARED',
+204:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 97.8, biometricMatch: true, docNumber: 'S8293741C',
+205:       securityFindings: []
+206:     },
+207:     { 
+208:       caseId: 'BSS-2026-1172', time: '02:05 PM', date: '01 SEP 2026', name: 'AMINA DIOP', nationality: 'SENEGALESE', 
+209:       documentType: 'VISA', docCount: 2, riskScore: 35, riskLevel: 'MEDIUM', threatLevel: 'TRAVEL HISTORY INCONSISTENCY',
+210:       aiRecommendation: 'MANUAL REVIEW', finalDecision: 'PENDING_REVIEW', status: 'PENDING OFFICER REVIEW',
+211:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 88.9, biometricMatch: true, docNumber: 'D1129384E',
+212:       securityFindings: ["RECENT TRAVEL TO HIGH-RISK JURISDICTION", "INCOMPLETE DECLARATION FORM"]
+213:     },
+214:     { 
+215:       caseId: 'BSS-2026-1189', time: '03:40 PM', date: '01 SEP 2026', name: 'LUKAS WEBER', nationality: 'GERMAN', 
+216:       documentType: 'GERMAN PASSPORT', docCount: 1, riskScore: 50, riskLevel: 'MEDIUM', threatLevel: 'SYSTEM OUTAGE DURING SCAN',
+217:       aiRecommendation: 'MANUAL REVIEW', finalDecision: 'PENDING_REVIEW', status: 'PENDING OFFICER REVIEW',
+218:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 91.2, biometricMatch: true, docNumber: 'G9928374F',
+219:       securityFindings: ["DATABASE CONNECTION TIMEOUT DURING BACKGROUND CHECK"]
+220:     },
+221:     { 
+222:       caseId: 'BSS-2026-1204', time: '04:15 PM', date: '01 SEP 2026', name: 'VICTOR KOWALSKI', nationality: 'POLISH', 
+223:       documentType: 'IDENTITY CARD', docCount: 1, riskScore: 95, riskLevel: 'CRITICAL', threatLevel: 'KNOWN THREAT ACTOR',
+224:       aiRecommendation: 'IMMEDIATE REJECTION', finalDecision: 'REJECTED', status: 'REJECTED',
+225:       portrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", livePortrait: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='%238fa3b5'><rect width='100' height='100' fill='%23E8EDF2'/><circle cx='50' cy='35' r='20'/><path d='M20 100c0-25 15-40 30-40s30 15 30 40H20z'/></svg>", biometricScore: 99.5, biometricMatch: true, docNumber: 'K4429381G',
+226:       securityFindings: ["CRITICAL: POSITIVE MATCH ON EUROPOL DATABASE", "CRITICAL: OUTSTANDING WARRANT"]
+227:     }
+228:   ]);
+229:   const [dbSearchQuery, setDbSearchQuery] = useState('');
+230:   const [dbFilterRisk, setDbFilterRisk] = useState('ALL');
+231:   const [dbFilterStatus, setDbFilterStatus] = useState('ALL');
+232:   const [dbFilterDocType, setDbFilterDocType] = useState('ALL');
+233:   const [dbFilterNationality, setDbFilterNationality] = useState('ALL');
+234: 
+235:   const MASTER_DATABASE_PIN = "1234";
+236: 
+237:   const handlePinSubmit = (e) => {
+238:     if (e) e.preventDefault();
+239:     if (pin === MASTER_DATABASE_PIN) {
+240:       setAuthStatus('VERIFYING');
+241:       setTimeout(() => {
+242:         setDbUnlocked(true);
+243:         setAuthStatus('GRANTED');
+244:         setPin('');
+245:       }, 1500);
+246:     } else {
+247:       setAuthStatus('DENIED');
+248:       setTimeout(() => {
+249:         setAuthStatus('LOCKED');
+250:         setPin('');
+251:       }, 2000);
+252:     }
+253:   };
+254: 
+255:   const [viewingRecord, setViewingRecord] = useState(null);
+256: 
+257:   // Initialize webcam
+258:   useEffect(() => {
+259:     let stream = null;
+260:     const startCamera = async () => {
+261:       try {
+262:         stream = await navigator.mediaDevices.getUserMedia({ video: true });
+263:         if (videoRef.current) {
+264:           videoRef.current.srcObject = stream;
+265:         }
+266:       } catch (err) {
+267:         console.error("Error accessing webcam:", err);
+268:         setCameraError(true);
+269:       }
+270:     };
+271:     if (activeTab === 'scanner') {
+272:       startCamera();
+273:     }
+274:     return () => {
+275:       if (stream) {
+276:         stream.getTracks().forEach(track => track.stop());
+277:       }
+278:     };
+279:   }, [activeTab]);
+280: 
+281:   const handleFileClick = () => {
+282:     if (fileInputRef.current && !isAnalyzing) {
+283:       fileInputRef.current.click();
+284:     }
+285:   };
+286: 
+287:   const handleFileChange = (e) => {
+288:     const selectedFiles = Array.from(e.target.files);
+289:     if (selectedFiles.length > 0) {
+290:       const newFiles = selectedFiles.map(f => {
+291:         let url = null;
+292:         if (f.type.startsWith('image/')) {
+293:           url = URL.createObjectURL(f);
+294:         }
+295:         return { 
+296:           id: Math.random().toString(36).substr(2, 9),
+297:           file: f, 
+298:           previewUrl: url,
+299:           uploadStatus: 'complete',
+300:           scanStatus: 'pending',
+301:           documentType: 'UNKNOWN',
+302:           portrait: null,
+303:           analysis: null
+304:         };
+305:       });
+306:       setFiles(prev => [...prev, ...newFiles]);
+307:     }
+308:     if (fileInputRef.current) {
+309:       fileInputRef.current.value = "";
+310:     }
+311:   };
+312: 
+313:   const removeFile = (id, e) => {
+314:     e.stopPropagation(); 
+315:     if (isAnalyzing) return;
+316:     setFiles(prev => {
+317:       const updatedFiles = prev.filter(f => f.id !== id);
+318:       const removedFile = prev.find(f => f.id === id);
+319:       if (removedFile && removedFile.previewUrl) {
+320:         URL.revokeObjectURL(removedFile.previewUrl);
+321:       }
+322:       return updatedFiles;
+323:     });
+324:   };
+325: 
+326:   const handleAnalyze = () => {
+327:     // If analysisResult already exists, we might want to clear it or just re-run for pending documents
+328:     if (analysisResult && files.every(f => f.scanStatus === 'completed')) {
+329:       // Clear all and reset (acting as the old reset button)
+330:       setFiles(prev => {
+331:         prev.forEach(f => {
+332:           if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+333:         });
+334:         return [];
+335:       });
+336:       setAnalysisResult(null);
+337:       setfinalSubjectPortrait(undefined);
+338:       setFaceVerificationResult(null);
+339:       setLiveWebcamFaceData(null);
+340:       setLogs([]);
+341:       setCaseStatus('AWAITING_DECISION');
+342:       setFinalDecision(null);
+343:       setDecisionTimestamp(null);
+344:       setPendingDecision(null);
+345:       setAiRecommendation(null);
+346:       if (fileInputRef.current) {
+347:         fileInputRef.current.value = "";
+348:       }
+349:       return;
+350:     }
+351: 
+352:     if (isAnalyzing) return;
+353: 
+354:     setIsAnalyzing(true);
+355:     setLogs(["[SYSTEM] Initializing Risk Engine v4.2..."]);
+356: 
+357:     // Yield main thread to allow React to render loading states
+358:     const runAnalysis = async () => {
+359:       await new Promise(resolve => setTimeout(resolve, 50));
+360:       let globalPortraitResult = null;
+361:       let globalVerification = null;
+362:       let webcamDataUrl = null;
+363: 
+364:       try {
+365:         // Process each document independently
+366:         const updatedFiles = [...files];
+367:         
+368:         for (let i = 0; i < updatedFiles.length; i++) {
+369:           const doc = updatedFiles[i];
+370:           if (doc.scanStatus === 'completed') continue; // skip already analyzed
+371: 
+372:           // Update individual status
+373:           setFiles(prev => prev.map(f => f.id === doc.id ? { ...f, scanStatus: 'processing' } : f));
+374:           setLogs(prev => [...prev, `[INFO] Extracting Facial Biometrics & PAD Checks for ${doc.file.name}...`]);
+375:           
+376:           await new Promise(resolve => setTimeout(resolve, 50)); // Yield to main thread for UI render
+377:           
+378:           const portraitResult = await extractFacePortrait(doc.file);
+379:           
+380:           if (!globalPortraitResult && portraitResult && portraitResult.imageData) {
+381:              globalPortraitResult = portraitResult;
+382:           }
+383: 
+384:           doc.portrait = portraitResult;
+385:           doc.scanStatus = 'completed';
+386:           
+387:           const fnameLower = doc.file.name.toLowerCase();
+388:           let docCountry = null;
+389:           let mrzNat = null;
+390:           
+391:           if (fnameLower.includes('canad') || fnameLower.includes('can')) {
+392:             docCountry = 'CANADA';
+393:             mrzNat = 'CAN';
+394:           } else if (fnameLower.includes('india') || fnameLower.includes('ind')) {
+395:             docCountry = 'INDIA';
+396:             mrzNat = 'IND';
+397:           } else if (fnameLower.includes('usa') || fnameLower.includes('america')) {
+398:             docCountry = 'USA';
+399:             mrzNat = 'USA';
+400:           }
+401:           
+402:           let docTypeStr = 'PASSPORT';
+403:           if (fnameLower.includes('pr') || fnameLower.includes('resident')) {
+404:             docTypeStr = 'PERMANENT RESIDENT CARD';
+405:           } else if (fnameLower.includes('visa')) {
+406:             docTypeStr = 'VISA';
+407:           }
+408:           
+409:           doc.documentType = docCountry ? `${docCountry} ${docTypeStr}` : docTypeStr;
+410:           doc.analysis = {
+411:             nameExtracted: doc.file.name.split('.')[0].toUpperCase() || '[EXTRACTED_SUBJECT]',
+412:             documentNumber: Math.random().toString().substring(2, 10).toUpperCase(),
+413:             mrzNationality: mrzNat,
+414:             documentCountry: docCountry
+415:           };
+416:           
+417:           // Update state after each document to show progress
+418:           setFiles(prev => prev.map(f => f.id === doc.id ? doc : f));
+419:         }
+420: 
+421:         setfinalSubjectPortrait(globalPortraitResult || null);
+422:         
+423:         if (globalPortraitResult && globalPortraitResult.imageData && videoRef.current) {
+424:            setLogs(prev => [...prev, "[INFO] Generating Document Face Embeddings..."]);
+425:            await new Promise(resolve => setTimeout(resolve, 50)); // Yield
+426:            const docImg = await createHtmlImageFromDataUrl(globalPortraitResult.imageData);
+427:            const docDescriptor = await getFaceDescriptor(docImg);
+428:            
+429:            setLogs(prev => [...prev, "[INFO] Capturing Live Webcam Feed..."]);
+430:            await new Promise(resolve => setTimeout(resolve, 50)); // Yield
+431:            const canvas = document.createElement('canvas');
+432:            canvas.width = videoRef.current.videoWidth || 640;
+433:            canvas.height = videoRef.current.videoHeight || 480;
+434:            canvas.getContext('2d').drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+435:            webcamDataUrl = canvas.toDataURL('image/jpeg');
+436:            
+437:            setLogs(prev => [...prev, "[INFO] Generating Live Face Embeddings..."]);
+438:            await new Promise(resolve => setTimeout(resolve, 50)); // Yield
+439:            const liveImg = await createHtmlImageFromDataUrl(webcamDataUrl);
+440:            const liveDescriptor = await getFaceDescriptor(liveImg);
+441:            
+442:            if (docDescriptor && liveDescriptor) {
+443:              setLogs(prev => [...prev, "[INFO] Comparing Biometric Descriptors..."]);
+444:              globalVerification = verifyIdentity(docDescriptor, liveDescriptor);
+445:              setFaceVerificationResult(globalVerification);
+446:              setLiveWebcamFaceData(webcamDataUrl);
+447:              
+448:              if (globalVerification.verified) {
+449:                setLogs(prev => [...prev, "[INFO] Identity Match: VERIFIED"]);
+450:              } else {
+451:                setLogs(prev => [...prev, "[CRITICAL] IDENTITY MISMATCH DETECTED"]);
+452:              }
+453:            } else {
+454:              setFaceVerificationResult({ verified: false, status: 'LIVE FACE NOT DETECTED' });
+455:              setLogs(prev => [...prev, "[WARN] Could not detect valid faces for verification."]);
+456:            }
+457:         } else {
+458:            setFaceVerificationResult({ verified: false, status: 'DOCUMENT PORTRAIT UNAVAILABLE' });
+459:         }
+460:       } catch (err) {
+461:         console.error("Face extraction/verification failed:", err);
+462:         setfinalSubjectPortrait(null);
+463:         setFaceVerificationResult({ verified: false, status: 'VERIFICATION ERROR' });
+464:       }
+465: 
+466:       setLogs(prev => [...prev, "[INFO] Starting OCR Extraction & Text Parsing..."]);
+467:       setLogs(prev => [...prev, "[INFO] Running Cross-Reference & Phonetic Engine..."]);
+468:       
+469:       setIsAnalyzing(false);
+470:       
+471:       // Calculate risk score based on verification
+472:       let mockRiskScore = 65; 
+473:       let threatLevelStr = 'MEDIUM RISK - FORGERY SUSPECTED';
+474:       
+475:       if (globalVerification && !globalVerification.verified) {
+476:         mockRiskScore = 92;
+477:         threatLevelStr = 'HIGH RISK - IDENTITY MISMATCH';
+478:       } else if (globalVerification && globalVerification.verified) {
+479:         mockRiskScore = 35;
+480:         threatLevelStr = 'LOW RISK - VERIFIED';
+481:       }
+482:       
+483:       const primaryDoc = files.length > 0 ? files[0] : null;
+484:       
+485:       let finalNationality = 'UNKNOWN';
+486:       let docTypeDisplay = 'UNKNOWN';
+487:       let docCountry = 'UNKNOWN';
+488:       let isCanadaPR = false;
+489: 
+490:       if (primaryDoc) {
+491:         docTypeDisplay = primaryDoc.documentType || 'UNKNOWN';
+492:         if (primaryDoc.analysis) {
+493:           docCountry = primaryDoc.analysis.documentCountry;
+494:           const code = primaryDoc.analysis.mrzNationality; // Priority 1: MRZ
+495:           
+496:           if (code) {
+497:             const codeMap = { 'CAN': 'CANADIAN', 'IND': 'INDIAN', 'USA': 'AMERICAN', 'GBR': 'BRITISH', 'MEX': 'MEXICAN' };
+498:             finalNationality = codeMap[code.toUpperCase()] || code.toUpperCase();
+499:           } else if (docCountry) {
+500:             // Priority 3 Fallback: Document Country
+501:             const countryMap = { 'CANADA': 'CANADIAN', 'INDIA': 'INDIAN', 'USA': 'AMERICAN', 'UNITED STATES': 'AMERICAN' };
+502:             if (countryMap[docCountry.toUpperCase()]) {
+503:               finalNationality = `DETECTED COUNTRY: ${docCountry.toUpperCase()} - NATIONALITY: ${countryMap[docCountry.toUpperCase()]}`;
+504:             }
+505:           }
+506:         }
+507:         
+508:         // Retain original isCanadaPR mock data for other fields (like specific names/dates in demo)
+509:         const fnameLower = primaryDoc.file.name.toLowerCase();
+510:         isCanadaPR = (fnameLower.includes('canada') || fnameLower.includes('canad')) && (fnameLower.includes('pr') || fnameLower.includes('resident'));
+511:       }
+512: 
+513:       setAnalysisResult({
+514:         threatLevel: threatLevelStr,
+515:         riskScore: mockRiskScore.toString(),
+516:         documentType: docTypeDisplay,
+517:         nameExtracted: primaryDoc ? (isCanadaPR ? 'ALEXSANDER NAVARRO' : (primaryDoc.analysis?.nameExtracted || '[EXTRACTED_SUBJECT]')) : '[EXTRACTED_NAME]',
+518:         nameDB: primaryDoc ? (isCanadaPR ? 'ALEXANDER NOVARO (ALIAS)' : ((primaryDoc.analysis?.nameExtracted || '[EXTRACTED_SUBJECT]') + ' (ALIAS)')) : '[DATABASE_RECORD]',
+519:         documentNumber: primaryDoc ? (isCanadaPR ? 'P8923471X' : primaryDoc.analysis?.documentNumber) : 'UNKNOWN',
+520:         sex: finalNationality.includes('CANADIAN') ? 'M' : 'U',
+521:         nationality: finalNationality,
+522:         dateOfBirth: finalNationality.includes('CANADIAN') ? '1985-04-12' : '1980-01-01',
+523:         expiryDate: finalNationality.includes('CANADIAN') ? '2028-11-20' : '2030-01-01',
+524:         docCount: files.length.toString(),
+525:         expiryStatus: 'VALID'
+526:       });
+527:       setCaseStatus('AWAITING_DECISION');
+528:       
+529:       // AI RECOMMENDATION LOGIC
+530:       if (globalVerification && !globalVerification.verified) {
+531:         setAiRecommendation('PENDING_REVIEW');
+532:       } else if (mockRiskScore > 40) {
+533:         setAiRecommendation('MANUAL_REVIEW');
+534:       } else {
+535:         setAiRecommendation('CLEAR');
+536:       }
+537:     };
+538:     runAnalysis();
+539:   };
+540: 
+541: 
+542:   // DYNAMIC RISK AND RECOMMENDATION LOGIC
+543:   const riskAssessment = React.useMemo(() => {
+544:     let factors = [];
+545:     let overallRiskScore = 0;
+546:     
+547:     if (analysisResult) {
+548:        // Identity Verification
+549:        const identityStatus = analysisResult.nameExtracted.includes('ALIAS') ? 'REVIEW' : 'VERIFIED';
+550:        factors.push({
+551:          id: 'identity_fraud_01',
+552:          name: 'IDENTITY VERIFICATION',
+553:          riskLevel: identityStatus === 'REVIEW' ? 'MEDIUM' : 'LOW',
+554:          status: identityStatus,
+555:          impact: identityStatus === 'REVIEW' ? 'MEDIUM' : 'LOW',
+556:          contributionDesc: identityStatus === 'REVIEW' ? 'Alias detected in subject name mapping.' : 'Identity details align with basic formatting.'
+557:        });
+558:        
+559:        // Biometric Verification
+560:        const isBioMatch = faceVerificationResult?.verified;
+561:        const bioStatus = faceVerificationResult?.status;
+562:        let bioRisk = 'LOW';
+563:        let bioImpact = 'LOW';
+564:        let bioDesc = 'Biometric features verified successfully.';
+565:        if (bioStatus === 'IDENTITY_MISMATCH') {
+566:          bioRisk = 'CRITICAL';
+567:          bioImpact = 'HIGH';
+568:          bioDesc = 'Live identity verification did not meet the required similarity threshold.';
+569:        } else if (bioStatus === 'LIVE FACE NOT DETECTED' || bioStatus === 'DOCUMENT PORTRAIT UNAVAILABLE') {
+570:          bioRisk = 'HIGH';
+571:          bioImpact = 'MEDIUM';
+572:          bioDesc = 'Missing critical biometric data to perform 1:1 match.';
+573:        }
+574:        factors.push({
+575:          id: 'biometric_mismatch_01',
+576:          name: 'BIOMETRIC VERIFICATION',
+577:          riskLevel: bioRisk,
+578:          status: isBioMatch ? 'VERIFIED' : 'MISMATCH',
+579:          impact: bioImpact,
+580:          contributionDesc: bioDesc
+581:        });
+582:        
+583:        // Document Integrity
+584:        const docAnomaly = analysisResult.threatLevel.includes('FORGERY');
+585:        factors.push({
+586:          id: 'doc_integrity_01',
+587:          name: 'DOCUMENT INTEGRITY',
+588:          riskLevel: docAnomaly ? 'HIGH' : 'LOW',
+589:          status: docAnomaly ? 'ANOMALY' : 'CLEAR',
+590:          impact: docAnomaly ? 'HIGH' : 'LOW',
+591:          contributionDesc: docAnomaly ? 'ELA detected potential tampering in signature zone.' : 'No major anomalies detected in document structure.'
+592:        });
+593:        
+594:        // Threat Network
+595:        factors.push({
+596:          id: 'criminal_net_01',
+597:          name: 'THREAT NETWORK ANALYSIS',
+598:          riskLevel: 'MEDIUM',
+599:          status: 'SUSPICIOUS',
+600:          impact: 'MEDIUM',
+601:          contributionDesc: 'Indirect connections mapped to identified high-risk nodes.'
+602:        });
+603:     }
+604: 
+605:     // Calculate overall score
+606:     let criticalCount = factors.filter(f => f.riskLevel === 'CRITICAL').length;
+607:     let highCount = factors.filter(f => f.riskLevel === 'HIGH').length;
+608:     let medCount = factors.filter(f => f.riskLevel === 'MEDIUM').length;
+609:     
+610:     if (criticalCount > 0) overallRiskScore = 92;
+611:     else if (highCount > 0) overallRiskScore = 78;
+612:     else if (medCount > 0) overallRiskScore = 45;
+613:     else overallRiskScore = 12;
+614:     
+615:     let overallRiskLevel = 'LOW';
+616:     if (overallRiskScore >= 90) overallRiskLevel = 'CRITICAL';
+617:     else if (overallRiskScore >= 70) overallRiskLevel = 'HIGH';
+618:     else if (overallRiskScore >= 40) overallRiskLevel = 'MEDIUM';
+619:     
+620:     const sortedFactors = [...factors].sort((a,b) => {
+621:       const w = { 'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1 };
+622:       return w[b.riskLevel] - w[a.riskLevel];
+623:     });
+624:     const topContributors = sortedFactors.slice(0, 3);
+625:     
+626:     let confidence = 'HIGH';
+627:     let confidenceReason = 'All required document, biometric and intelligence analysis steps completed successfully.';
+628:     if (!faceVerificationResult || faceVerificationResult.status === 'LIVE FACE NOT DETECTED' || faceVerificationResult.status === 'DOCUMENT PORTRAIT UNAVAILABLE') {
+629:       confidence = 'LIMITED';
+630:       confidenceReason = 'One or more required evidence sources were unavailable or had low-quality input.';
+631:     }
+632:     
+633:     // AI Recommendation
+634:     let aiRecTitle = 'PROCEED â€” LOW SECURITY RISK';
+635:     let primaryFactor = 'No significant risk factors identified.';
+636:     if (overallRiskLevel === 'CRITICAL' || overallRiskLevel === 'HIGH') {
+637:       aiRecTitle = 'ENTRY NOT RECOMMENDED â€” HIGH RISK';
+638:       primaryFactor = topContributors[0]?.contributionDesc || 'High risk factors identified.';
+639:     } else if (overallRiskLevel === 'MEDIUM') {
+640:       aiRecTitle = 'MANUAL REVIEW RECOMMENDED';
+641:       primaryFactor = topContributors[0]?.contributionDesc || 'Medium risk factors identified.';
+642:     }
+643:     
+644:     let secondaryFactor = topContributors[1]?.contributionDesc || 'No secondary factors.';
+645:     let mitigatingFactor = 'No verified direct criminal watchlist match was identified.';
+646: 
+647:     return {
+648:       factors,
+649:       overallRiskScore,
+650:       overallRiskLevel,
+651:       topContributors,
+652:       confidence,
+653:       confidenceReason,
+654:       aiRecTitle,
+655:       primaryFactor,
+656:       secondaryFactor,
+657:       mitigatingFactor
+658:     };
+659:   }, [analysisResult, faceVerificationResult]);
+660: 
+661:   return (
+662:     <div className="bg-[#DCE7EE] bg-military-grid text-[#2F475B] flex font-sans relative h-screen overflow-hidden">
+663:       
+664:       {/* SIDEBAR NAVIGATION */}
+665:       <aside className={`bg-[#14263D] border-r border-[#1D2B42] flex flex-col flex-shrink-0 z-50 transition-all duration-300 relative ${isSidebarExpanded ? 'w-64' : 'w-16'}`}>
+666:         {/* Toggle Button */}
+667:         <button 
+668:           onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+669:           className="absolute -right-3 top-5 bg-[#1D2B42] border border-[#1D2B42] text-[#71899A] hover:text-white hover:border-blue-500 rounded-full p-1 z-50 transition-colors shadow-md"
+670:         >
+671:           <svg className={`w-3 h-3 transition-transform duration-300 ${isSidebarExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+672:             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+673:           </svg>
+674:         </button>
+675: 
+676:         <div className="h-16 flex items-center justify-center border-b border-[#1D2B42] shrink-0 overflow-hidden px-2">
+677:           <Shield className="w-6 h-6 text-blue-400 shrink-0" />
+678:           <span className={`ml-3 text-[10px] font-black text-white uppercase tracking-widest leading-tight whitespace-nowrap transition-opacity duration-300 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0 hidden'}`}>BORDER SECURITY<br/>COMMAND</span>
+679:         </div>
+680:         
+681:         <div className="flex-1 py-6 flex flex-col space-y-2 px-3 overflow-y-auto overflow-x-hidden">
+682:           <button 
+683:             onClick={() => setActiveTab('scanner')}
+684:             className={`w-full flex items-center px-3 py-3 rounded-lg transition-colors group relative ${activeTab === 'scanner' ? 'bg-[#1D2B42] border-l-4 border-blue-500 text-white' : 'text-[#71899A] hover:bg-[#1D2B42] hover:text-white border-l-4 border-transparent'}`}
+685:           >
+686:             <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+687:               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+688:             </svg>
+689:             <span className={`ml-3 text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-opacity duration-300 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0 hidden'}`}>LIVE SCREENING</span>
+690:             
+691:             {/* Tooltip */}
+692:             {!isSidebarExpanded && (
+693:               <div className="absolute left-full ml-4 px-2 py-1 bg-[#1D2B42] text-white text-[10px] font-bold tracking-widest rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 border border-[#1D2B42] shadow-lg">
+694:                 LIVE SCREENING
+695:               </div>
+696:             )}
+697:           </button>
+698:           
+699:           <button 
+700:             onClick={() => setActiveTab('profile')}
+701:             className={`w-full flex items-center px-3 py-3 rounded-lg transition-colors group relative ${activeTab === 'profile' ? 'bg-[#1D2B42] border-l-4 border-blue-500 text-white' : 'text-[#71899A] hover:bg-[#1D2B42] hover:text-white border-l-4 border-transparent'}`}
+702:           >
+703:             <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+704:               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+705:             </svg>
+706:             <span className={`ml-3 text-[10px] font-bold uppercase tracking-widest whitespace-nowrap transition-opacity duration-300 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0 hidden'}`}>INTELLIGENCE REVIEW</span>
+707:             
+708:             {/* Tooltip */}
+709:             {!isSidebarExpanded && (
+710:               <div className="absolute left-full ml-4 px-2 py-1 bg-[#1D2B42] text-white text-[10px] font-bold tracking-widest rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 border border-[#1D2B42] shadow-lg">
+711:                 INTELLIGENCE REVIEW
+712:               </div>
+713:             )}
+714:           </button>
+715: 
+716:           <button 
+717:             onClick={() => {
+718:             if (dbUnlocked) {
+719:               setActiveTab('database');
+720:             } else {
+721:               setShowAuthModal(true);
+722:             }
+723:           }}
+724:             className={`w-full flex items-center px-3 py-3 rounded-lg transition-colors group relative ${activeTab === 'database' ? 'bg-[#1D2B42] border-l-4 border-blue-500 text-white' : 'text-[#71899A] hover:bg-[#1D2B42] hover:text-white border-l-4 border-transparent'}`}
+725:           >
+726:             <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+727:               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+728:             </svg>
+729:             <span className={`ml-3 text-[10px] font-bold uppercase tracking-widest flex-1 text-left truncate whitespace-nowrap transition-opacity duration-300 ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0 hidden'}`}>MASTER DATABASE</span>
+730:             {isSidebarExpanded && (
+731:               dbUnlocked ? (
+732:                 <Unlock className="w-3.5 h-3.5 opacity-50 shrink-0 text-emerald-400" />
+733:               ) : (
+734:                 <Lock className="w-3.5 h-3.5 opacity-50 shrink-0 text-red-400" />
+735:               )
+736:             )}
+737:             
+738:             {/* Tooltip */}
+739:             {!isSidebarExpanded && (
+740:               <div className="absolute left-full ml-4 px-2 py-1 bg-[#1D2B42] text-white text-[10px] font-bold tracking-widest rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 border border-[#1D2B42] shadow-lg">
+741:                 MASTER DATABASE
+742:               </div>
+743:             )}
+744:           </button>
+745:         </div>
+746: 
+747:         <div className="p-3 border-t border-[#1D2B42] shrink-0 overflow-hidden">
+748:            <div className={`flex items-center transition-all duration-300 ${isSidebarExpanded ? 'justify-start' : 'justify-center'}`}>
+749:              <div className="w-8 h-8 rounded bg-[#1D2B42] flex items-center justify-center border border-[#1D2B42] shrink-0">
+750:                 <span className="text-[10px] font-bold text-slate-300">RD</span>
+751:              </div>
+752:              <div className={`ml-3 overflow-hidden transition-opacity duration-300 whitespace-nowrap ${isSidebarExpanded ? 'opacity-100' : 'opacity-0 w-0 hidden'}`}>
+753:                <p className="text-[9px] font-bold text-slate-100 uppercase tracking-widest truncate">INSPECTOR R. DESAI</p>
+754:                <p className="text-[8px] font-mono text-[#71899A] truncate">ID: OFF-8924</p>
+755:              </div>
+756:            </div>
+757:         </div>
+758:       </aside>
+759: 
+760:       {/* MAIN CONTENT WRAPPER */}
+761:       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+762:         {/* Top Minimal Header */}
+763:         <header className="h-16 bg-[#14263D] border-b border-[#1D2B42] px-4 md:px-6 flex items-center justify-between flex-shrink-0 z-40 shadow-sm">
+764:           <div className="flex items-center space-x-3 truncate mr-4">
+765:              <span className="text-xs font-bold text-slate-300 uppercase tracking-widest truncate">
+766:                 {activeTab === 'scanner' ? 'LIVE BORDER SCREENING TERMINAL' : activeTab === 'profile' ? 'ACTIVE INTELLIGENCE DOSSIER' : 'MASTER INTELLIGENCE DATABASE'}
+767:              </span>
+768:           </div>
+769:           <div className="flex items-center space-x-3 md:space-x-4 shrink-0">
+770:             <button
+771:               onClick={() => setIsOverviewOpen(true)}
+772:               className="px-2 py-1.5 md:px-3 rounded bg-[#1D2B42] border border-[#1D2B42] text-[9px] font-black uppercase tracking-widest text-blue-400 hover:bg-[#213D57] hover:text-blue-300 transition-colors flex items-center group shadow-inner"
+773:             >
+774:               <span className="hidden md:inline">SUBJECT OVERVIEW</span>
+775:               <span className="md:hidden">OVERVIEW</span>
+776:               <svg className="w-3.5 h-3.5 ml-1.5 md:ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+777:                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
+778:               </svg>
+779:             </button>
+780:             <div className="h-5 w-px bg-slate-700 hidden md:block"></div>
+781:             <div className="flex items-center space-x-2">
+782:               <span className="h-2 w-2 bg-emerald-500 rounded-full shadow-sm"></span>
+783:               <span className="hidden md:inline text-[9px] font-bold text-slate-300 uppercase tracking-wider">SYSTEM SECURE</span>
+784:             </div>
+785:           </div>
+786:         </header>
+787: 
+788:         {/* Scrollable Content Area */}
+789:         <main className="flex-1 overflow-y-auto bg-[#DCE7EE] p-4 md:p-6 flex flex-col items-center">
+790:         
+791:         {/* =========================================================================
+792:             TAB 1: LIVE SCANNER
+793:         ========================================================================= */}
+794:         {activeTab === 'scanner' && (
+795:           <div className="w-full max-w-[1400px] animate-fade-in flex flex-col space-y-6 p
+<truncated 672 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.
